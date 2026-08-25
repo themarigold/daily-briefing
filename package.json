@@ -1,0 +1,44 @@
+{
+  "name": "daily-briefing",
+  "version": "0.1.0",
+  "description": "Local-first morning briefing CLI for developers who work with AI coding assistants \u2014 reads your git history, tells you where you left off and what to do next. BYO AI, no telemetry.",
+  "keywords": [
+    "cli",
+    "briefing",
+    "git",
+    "developer-tools",
+    "ai",
+    "local-first",
+    "bun"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/themarigold/daily-briefing"
+  },
+  "bugs": {
+    "url": "https://github.com/themarigold/daily-briefing/issues"
+  },
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "daily-briefing": "src/main.ts"
+  },
+  "scripts": {
+    "start": "bun run src/main.ts",
+    "build": "bun build src/main.ts --compile --outfile dist/daily-briefing",
+    "test": "bun test",
+    "typecheck": "bunx tsc --noEmit",
+    "eval": "bun run scripts/eval.ts",
+    "audit": "bun run scripts/audit.ts"
+  },
+  "engines": {
+    "bun": ">=1.3.14"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}

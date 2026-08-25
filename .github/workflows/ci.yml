@@ -1,0 +1,26 @@
+name: CI
+
+# Gates: install (frozen lockfile), strict type-check, full test suite — on Linux AND macOS
+# (macOS is the flagship scheduled-delivery platform; Linux keeps the core honest cross-platform).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14" # pinned for reproducibility (matches dev)
+      - name: Install (frozen lockfile)
+        run: bun install --frozen-lockfile
+      - name: Type-check (strict, no emit)
+        run: bunx tsc --noEmit
+      - name: Test
+        run: bun test
