@@ -146,7 +146,13 @@ export function renderBriefing(b: BriefingStruct): string {
     L.push("");
   }
   L.push("▶ Suggested next");
-  L.push(...(b.suggestions.length ? b.suggestions.map((s) => `   • ${s.text}`) : ["   (none)"]));
+  // `(from resume)` (S1): PROVENANCE, not decoration. A promoted line is the verbatim tail of a
+  // RESUME bullet the reader has already seen 20 lines up, so without the label it reads as the model
+  // repeating itself — the exact redundancy the day-43 judge called out. The label says "this is the
+  // action you stated, carried down here", which is why the duplication is the point.
+  L.push(...(b.suggestions.length
+    ? b.suggestions.map((s) => `   • ${s.text}${s.promoted ? "  (from resume)" : ""}`)
+    : ["   (none)"]));
   if (b.warnings?.length) { L.push(""); L.push("⚠ " + b.warnings.join("; ")); }
   L.push("");
   L.push(`— generated locally via ${b.provider}`);

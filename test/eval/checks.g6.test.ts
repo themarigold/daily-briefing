@@ -94,6 +94,34 @@ test("⚠ the gate stays PASSING on redundancy warns — this is the deferred-ga
   expect(v.pass).toBe(true);
 });
 
+test("⚠ G6 does NOT see a `promoted` suggestion — the S1 narrowing, pinned, PENDING OPERATOR ACK", () => {
+  // S1 (EVAL day 43) added a CODE-BUILT suggestion channel: `promoteResumeActions` carries an explicit
+  // action a RESUME bullet already stated down into "Suggested next", verbatim and labelled
+  // "(from resume)". `checkSuggestionRestatement` skips those, because a verbatim carry-down restates
+  // its bullet BY CONSTRUCTION and the rule targets MODEL padding.
+  //
+  // ⚠ G6 reuses that same function (src/eval/checks.ts), so the skip narrows this eval check too.
+  // THIS TEST DOCUMENTS THAT, it does not endorse it: narrowing what an eval observes is an
+  // eval-integrity decision for the operator. Recorded here so the narrowing is visible in the suite
+  // rather than implicit in a shared helper. G6 is `warn` and SOFT (pinned by the tests above), so no
+  // run's verdict changes either way.
+  const identical = "Decide what to do about the branch drift vault_autolog's eval log recorded today — it was logged, not resolved.";
+
+  const asModel = g6Redundancy(makeCheckInput({
+    struct: { date: "2026-08-10", machineScope: "test", provider: "test", recap: [],
+      resume: REAL_RESUME, suggestions: [{ text: identical }] },
+  }));
+  expect(asModel.length).toBe(1);
+  expect(asModel[0]!.check).toBe("G6");
+  expect(asModel[0]!.severity).toBe("warn");
+
+  const asPromoted = g6Redundancy(makeCheckInput({
+    struct: { date: "2026-08-10", machineScope: "test", provider: "test", recap: [],
+      resume: REAL_RESUME, suggestions: [{ text: identical, promoted: true }] },
+  }));
+  expect(asPromoted.length).toBe(0);
+});
+
 test("⚠ but a FAIL-severity redundancy in 2 of 3 runs WOULD fail the gate — the soft-tier policy is live", () => {
   // Proves the tier is wired, not merely declared: if severity is ever raised to "fail", the soft
   // 2-of-3 rule applies immediately. Without this, "SOFT" could be a comment with nothing behind it.

@@ -34,7 +34,10 @@ import type { DoneItem } from "./types";
 // ./types, because four other places spelled the same shape inline (see the comment there).
 export type { DoneItem };
 export type ResumeBullet = { repo: string; text: string };
-export type Suggestion = { text: string };
+/** `promoted?` mirrors `BriefingStruct.suggestions` (types.ts) — the CODE-BUILT channel added by
+ *  `promoteResumeActions` (S1). Carried here because `checkSuggestionRestatement` must be able to
+ *  tell the two channels apart; see the skip at its head. */
+export type Suggestion = { text: string; promoted?: true };
 
 /**
  * THE ONE DEFINITION of how a DONE subject is rendered into the prompt — i.e. exactly what the model
@@ -183,6 +186,27 @@ export function checkSuggestionRestatement(
   const out: PostFinding[] = [];
   const resumeTokens = resume.map((r) => ({ r, tok: contentTokens(r.text) }));
   for (const s of suggestions) {
+    // ⚠ SKIP THE CODE-BUILT CHANNEL (S1). A `promoted: true` suggestion is the VERBATIM tail of a
+    // RESUME bullet, so it restates one BY CONSTRUCTION and would score at or near 1.000 every single
+    // morning. This rule (#157) exists to catch the MODEL padding SUGGESTIONS with RESUME prose; a
+    // deterministic promotion is the opposite — a deliberate carry-down the day-43 judge asked for,
+    // labelled `(from resume)` in the render so the reader is never misled about where it came from.
+    //
+    // The skip covers the near-miss telemetry below as well, and that is the load-bearing half: the
+    // NEAR_MISS_FLOOR corpus is what a future move of RESTATEMENT_THRESHOLD will rest on, and seeding
+    // it with a guaranteed-1.000 pair every run would poison exactly the calibration data
+    // NEAR_MISS_FLOOR was added (2026-08-18) to collect. Neither threshold changes here.
+    //
+    // ⚠ TWO CALL SITES, AND THE SECOND IS AN EVAL CHECK — this skip narrows both. `g6Redundancy`
+    // (src/eval/checks.ts) reuses THIS function deliberately, so that "restatement" has one
+    // definition on the delivery path and in the harness; the consequence is that a `promoted`
+    // suggestion is now invisible to G6 as well as to the morning diagnostic. G6 is severity `warn`
+    // and is in SOFT_RULES, so it reports and never gates — nothing that could pass a run starts
+    // passing because of this. ⚠ The behaviour is PENDING OPERATOR ACK: narrowing what an eval check
+    // observes is an eval-integrity decision, not a refactor, and it is recorded here rather than
+    // decided here. No threshold, gold fixture or severity is touched by this change; the pin lives
+    // in test/eval/checks.g6.test.ts so the narrowing is visible rather than implicit.
+    if (s.promoted) continue;
     const sTok = contentTokens(s.text);
     let best: { score: number; shared: number; bullet: ResumeBullet } | undefined;
     for (const { r, tok } of resumeTokens) {

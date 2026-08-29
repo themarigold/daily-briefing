@@ -49,7 +49,21 @@ export type BriefingStruct = {
    *  reordered in the struct, and every existing consumer that ignores the field sees the exact
    *  pre-T1.3 shape; the audit's per-commit SHA reconciliation reads member lines unchanged. */
   recap: { repo: string; text: string; evidence?: string; group?: string }[];
-  suggestions: { text: string }[];
+  /** `promoted?` (additive, S1 — EVAL day 43): TRUE when this suggestion was BUILT BY CODE from an
+   *  explicit next action a RESUME bullet already stated ("Resume: audit day-42 briefing next"), not
+   *  written by the model. Two consecutive mornings ended a resume bullet with an explicit action that
+   *  never appeared under "Suggested next"; the day-43 judge: "any Resume: action must become
+   *  suggestion #1 or the block is redundant."
+   *
+   *  Promoted entries are PREPENDED by `promoteResumeActions`, so they lead the block as the judge
+   *  required. The flag itself marks the CHANNEL, not the rank — position carries the rank, and two
+   *  consumers read the flag precisely because they need to tell the channels apart:
+   *  `render.ts` labels the line `(from resume)` so the reader can see the provenance, and
+   *  `postcheck.checkSuggestionRestatement` SKIPS it (a verbatim promotion restates its bullet BY
+   *  CONSTRUCTION; that rule grades model behaviour, and scoring this channel would report 1.000
+   *  containment every morning). Literal `true` rather than `boolean` so `promoted: false` — which
+   *  would read as "the model wrote it", a claim this field cannot make — is not expressible. */
+  suggestions: { text: string; promoted?: true }[];
   today?: { repo: string; text: string }[]; // additive: deterministic "today so far" commits (#1)
   /** Additive: a usage-limit outage that ENDED with this briefing. `missedDays` counts briefings that
    *  did not happen, not elapsed days — see core.ts. Present only when at least one was missed, so the

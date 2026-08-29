@@ -1,4 +1,4 @@
-# daily_briefing_application
+# daily-briefing
 
 A cross-platform CLI **morning briefing for developers who work with AI coding assistants**.
 Reads local git history and produces a **resumption-focused** briefing — "here's where you left
@@ -10,6 +10,41 @@ first, then API keys, then local models).
 > generates on first wake past a morning floor), provider hardening on by default, multi-account
 > failover, and a `bun run audit` self-audit that has graded the author's own briefing every morning
 > since day one.
+
+## Quickstart (prebuilt binary)
+
+**You need:** local git repos to brief on, and an AI to generate with — an installed coding-agent CLI
+(e.g. `claude`) is the zero-config default; API-key and local-model providers are configured in the
+same config file.
+
+Grab the binary for your platform from the
+[latest release](https://github.com/themarigold/daily-briefing/releases/latest)
+(`darwin-arm64` / `darwin-x64` / `linux-arm64` / `linux-x64`, plus an **experimental, untested**
+`windows-x64`), then:
+
+```sh
+# example: Apple Silicon macOS — substitute your platform's asset name throughout
+curl -fsSLO https://github.com/themarigold/daily-briefing/releases/latest/download/daily-briefing-darwin-arm64
+curl -fsSLO https://github.com/themarigold/daily-briefing/releases/latest/download/SHA256SUMS
+shasum -a 256 -c <(grep darwin-arm64 SHA256SUMS)     # verify before running
+chmod +x daily-briefing-darwin-arm64
+./daily-briefing-darwin-arm64 init                    # writes the config template — edit it, then:
+./daily-briefing-darwin-arm64 run
+```
+
+Notes:
+- **macOS quarantine:** a binary downloaded through a *browser* is quarantined and Gatekeeper will
+  refuse it (the binaries are not notarized) — clear it with
+  `xattr -d com.apple.quarantine daily-briefing-darwin-arm64`. A `curl` download has no quarantine
+  attribute, so the commands above run as-is.
+- **Scheduled morning delivery** (generate automatically on your first wake of the day) is currently
+  a **source-checkout install on macOS only** — see **Install the morning agent** below; it needs a
+  clone and [Bun](https://bun.sh). The prebuilt binary is the manual path: run it whenever you want a
+  briefing, or schedule it yourself with cron/systemd (`run` is a cheap no-op after the day's
+  briefing is delivered, so an aggressive schedule is safe).
+- On Linux, config lives at `~/.config/daily-briefing/` and output at
+  `~/.local/state/daily-briefing/` (`XDG_CONFIG_HOME` / `XDG_STATE_HOME` respected); on macOS, output
+  is under `~/Library/Application Support/daily-briefing/` (the `run` output names the exact file).
 
 ## Docs
 Usage lives in this README; contribution guidance is in [CONTRIBUTING.md](CONTRIBUTING.md). Design notes

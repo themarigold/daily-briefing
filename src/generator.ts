@@ -11,7 +11,12 @@ import { isBranchNotable } from "./git";
 // (see the tombstone at the foot of `generateBriefing`). This import stays because `buildDoneBlock`
 // renders the prompt's DONE list with the same definition the freshness matcher compares against;
 // that shared definition is the whole reason the helper is exported.
-import { doneSubjectAsShown } from "./postcheck";
+// The similarity metric joins it for `promoteResumeActions`'s already-covered test (S1) — ONE
+// definition, in the module that calibrated it. Both HALVES of the two-gate rule are imported:
+// `MIN_SHARED_TOKENS` is READ here, never redefined or changed, because a ratio without its absolute
+// floor is arithmetic rather than evidence (see its own header). The import direction is safe —
+// postcheck imports ./subprojects, ./reduce and ./types, never this file.
+import { doneSubjectAsShown, contentTokens, containment, sharedTokens, MIN_SHARED_TOKENS } from "./postcheck";
 
 // INFRA_DENYLIST is defined in ./subprojects (filtered at the unit source) and imported above; here
 // it's re-applied as a post-parse SUGGESTIONS filter (defense in depth — the model can still fabricate
@@ -434,6 +439,124 @@ export function clusterRecap(
   return recap.map((entry, idx) => (stamps.has(idx) ? { ...entry, group: stamps.get(idx)! } : entry));
 }
 
+/** Resume-action promotion (S1, EVAL day 43). A RESUME bullet that ENDS with an explicit next action
+ *  ("Resume: audit day-42 briefing next", "…resume by committing them") stated the strongest next
+ *  step the document has — and on two consecutive mornings it never reached "Suggested next". The
+ *  day-43 judge: "any Resume: action must become suggestion #1 or the block is redundant."
+ *
+ *  Deterministic, post-parse, same shape as `clusterRecap`: takes and returns the slices it touches,
+ *  never calls the model, and cannot invent text — the promotion is the captured span VERBATIM.
+ *
+ *  ⚠ THE MARKER AT A SENTENCE START, NOT THE WORD ANYWHERE. Two rules, and the second was added after
+ *  a review measured what the first alone let through:
+ *    - the form must be the COLON form (`Resume:`) or the `resume by` form — a bare "resume" would
+ *      fire on ordinary prose, and the section is literally named RESUME;
+ *    - the marker must OPEN a sentence — bullet start, or after `.`/`!`/`?`/em-dash. Without this,
+ *      "I noted Resume: publish X but then changed my mind" promotes a REJECTED action, and "the
+ *      migration will resume by Friday" promotes a date. Both die on the sentence-start rule, and
+ *      both measured true positives ("— Resume: audit…", "— resume by committing…") survive it.
+ *
+ *  ⚠ LAST occurrence, not first: a bullet may narrate a previous resume point before stating the
+ *  current one, and the action is what the sentence ENDS on.
+ *
+ *  ⚠ BOUNDED AT THE SENTENCE, not at end-of-string. Slicing to the end of the bullet promoted
+ *  multi-sentence blobs (118 chars measured) and, once, 2051 characters of trailing narration into a
+ *  single suggestion bullet. The capture stops at the first sentence terminator; a capture still
+ *  longer than MAX_ACTION_CHARS is SKIPPED rather than truncated, because a truncated action is a
+ *  half-instruction and this channel's whole value is that it never invents or mangles text.
+ *
+ *  Verbatim capture, no re-conjugation: the `resume by` form yields a participial clause
+ *  ("committing them or confirming they're meant to stay local") that reads correctly as a
+ *  suggestion on its own. Rewriting it to an imperative would mean generating prose in a channel
+ *  whose entire value is that it generates none.
+ *
+ *  ⚠ PREPENDED, not appended: the requirement is "must become suggestion #1 or the block is
+ *  redundant". An action the reader already stated outranks anything the model invented.
+ *
+ *  ⚠ `guard` FILTERS CANDIDATES BEFORE SELECTION, and the order is load-bearing (review NEW-1, the
+ *  third instance of one failure). Selection — inter-candidate dedup and the cap — must only ever
+ *  see candidates that will actually survive, because both selection steps let one candidate
+ *  ELIMINATE another: a doomed candidate can dedup-suppress its valid twin, or two doomed candidates
+ *  can consume the cap and starve a third. Either way the doomed ones are then removed and the block
+ *  is EMPTY — the same empty-"Suggested next" outcome as the pre-filter coverage bug, arriving one
+ *  step later. The caller passes its own suggestion guards here; the default is identity so the
+ *  function stays testable on its own.
+ */
+export function promoteResumeActions(
+  suggestions: BriefingStruct["suggestions"], resume: BriefingStruct["resume"],
+  guard: (c: BriefingStruct["suggestions"]) => BriefingStruct["suggestions"] = (c) => c,
+): BriefingStruct["suggestions"] {
+  // Cap: bounded output. Resume bullets can be many (one per unit, plus backfills), and a block of
+  // eight code-built lines would bury the model's own suggestions — the opposite of the fix.
+  const MAX_PROMOTIONS = 2;
+  // Below this, a capture is a fragment ("it", "later", "tomorrow"), not an action worth a line.
+  const MIN_ACTION_CHARS = 10;
+  // Above this, the capture is narration that happens to lack a terminator, not an action. Skipped,
+  // never truncated — see the header.
+  const MAX_ACTION_CHARS = 300;
+  const COVERED_CONTAINMENT = 0.5;
+
+  // Marker + its required left context. `^\s*` = bullet start (parseBriefing has already stripped the
+  // "- " and the `[label]` prefix); otherwise a sentence terminator or an em/en dash.
+  const MARKER = /(?:^\s*|[.!?]\s+|[—–]\s*)(?:resume\s*:\s*|resume\s+by\s+)/gi;
+
+  const extract = (text: string): string | undefined => {
+    let end = -1;
+    for (const m of text.matchAll(MARKER)) end = m.index + m[0].length;   // LAST match wins
+    if (end < 0) return undefined;
+    const rest = text.slice(end);
+    // ⚠ The terminator must be followed by whitespace or end-of-string, so "v1.2" and "day-42." are
+    // not mistaken for sentence ends mid-action.
+    const stop = rest.search(/[.!?](\s|$)/);
+    const action = (stop >= 0 ? rest.slice(0, stop) : rest).trim()
+      .replace(/[.!?,]+$/, "").trim();
+    if (action.length < MIN_ACTION_CHARS || action.length > MAX_ACTION_CHARS) return undefined;
+    return action;
+  };
+
+  // ⚠ TWO GATES, exactly as `checkSuggestionRestatement` uses them, and for the reason documented at
+  // MIN_SHARED_TOKENS: containment divides by min(|A|,|B|), so a 2-token suggestion ("run tests")
+  // scores 0.500 on ONE coincidentally shared word and would silently suppress a real promotion. The
+  // ratio alone is arithmetic; the ratio plus an absolute floor is evidence. Both constants are READ
+  // from ./postcheck — neither is redefined or changed here.
+  const covers = (action: string, aTok: Set<string>, s: { text: string }): boolean => {
+    // Exact restatement is caught by TEXT, not tokens: a short action ("audit day-42 briefing next")
+    // has only 3 topical tokens, so an identical duplicate can never reach MIN_SHARED_TOKENS and the
+    // ratio gate alone would let the same line through twice.
+    if (s.text.trim().toLowerCase() === action.trim().toLowerCase()) return true;
+    const sTok = contentTokens(s.text);
+    return containment(aTok, sTok) >= COVERED_CONTAINMENT && sharedTokens(aTok, sTok) >= MIN_SHARED_TOKENS;
+  };
+
+  // STEP 1 — extract every candidate, in resume order. No dedup and no cap yet: both are SELECTION,
+  // and selection must not run until the doomed candidates are gone (see the header).
+  const candidates: BriefingStruct["suggestions"] = [];
+  for (const r of resume) {
+    const action = extract(r.text);
+    if (action) candidates.push({ text: action, promoted: true });
+  }
+  // STEP 2 — the caller's suggestion guards, applied to candidates. A candidate that names an infra
+  // path or an already-merged PR is removed HERE, so it can neither dedup-suppress a valid twin nor
+  // occupy a slot in the cap.
+  const viable = guard(candidates);
+
+  // STEP 3 — select from the survivors: drop anything already covered, then take the first
+  // MAX_PROMOTIONS.
+  const promoted: BriefingStruct["suggestions"] = [];
+  for (const c of viable) {
+    if (promoted.length >= MAX_PROMOTIONS) break;
+    const aTok = contentTokens(c.text);
+    // ⚠ `suggestions` here is the SURVIVING model list — its caller runs the same guards on it BEFORE
+    // calling, so a suggestion that is about to be dropped can no longer suppress a promotion and
+    // leave "Suggested next" empty. Also checked against already-selected actions, so two units
+    // leaving off at the same next step yield one line.
+    if (suggestions.some((s) => covers(c.text, aTok, s))) continue;
+    if (promoted.some((p) => covers(c.text, aTok, p))) continue;
+    promoted.push(c);
+  }
+  return promoted.length ? [...promoted, ...suggestions] : suggestions;
+}
+
 /** Document-level already-merged-PR predicate (EVAL day 36). Collects every PR number the
  *  deterministic merge channels render as a `🔀 Merged #N` line, then drops any suggestion citing
  *  one as `#N`. Pure and exported so the predicate is testable without a provider. Numbers only —
@@ -484,22 +607,44 @@ export async function generateBriefing(ctx: ReducedContext, provider: Provider, 
   // Display clustering runs AFTER verifyEvidence (a garbled SHA is already dropped, so it can
   // neither seed nor join a cluster) and never touches text/evidence — see clusterRecap's header.
   struct.recap = clusterRecap(struct.recap, ctx);
-  struct.suggestions = struct.suggestions.filter(s => !INFRA_DENYLIST.some(d => s.text.includes(d)));
-  // Already-merged-PR guard (EVAL day 36): the merge channel and the suggestion generator do not
-  // read each other, so the model can recommend acting on #N while the SAME document reports
-  // "🔀 Merged #N" (day 36: suggested merging #297 against its own merge line 34 lines up). One
-  // document-level predicate over the two deterministic merge channels (same-day `today` lines +
-  // window-foot `windowMerges`), both built before generation so they are complete here. Stated
-  // residual: a suggestion doing legitimate FOLLOW-UP work that cites the merged PR's number is
-  // also dropped — accepted, because a reader can find follow-ups from the 🔀 line itself, while
-  // a merge-what-is-merged suggestion is a self-contradiction in a trust-critical document.
+  // ── Suggestion guards, then S1 promotion, then the SAME guards again ────────────────────────────
+  // The infra denylist (defense in depth against a fabricated infra path) and the already-merged-PR
+  // guard (EVAL day 36: the merge channel and the suggestion generator do not read each other, so the
+  // model recommended merging #297 against its own "🔀 Merged #297" line 34 lines up — one
+  // document-level predicate over the two deterministic merge channels, both complete before
+  // generation). Stated residual on the PR guard: a legitimate FOLLOW-UP citing the merged number is
+  // also dropped — accepted, because a reader can find follow-ups from the 🔀 line itself, while a
+  // merge-what-is-merged suggestion is a self-contradiction in a trust-critical document.
+  //
+  // ⚠ RUN ON BOTH CHANNELS, AND BEFORE SELECTION IN EACH (reviews H2 and NEW-1, all three halves
+  // reproduced — every one of them ended in an EMPTY "Suggested next").
+  //   On the MODEL list, before promotion, so `promoteResumeActions` coverage-checks against the
+  //   SURVIVING suggestions. Checking against the pre-filter list let a suggestion that was ABOUT TO
+  //   BE DROPPED suppress the promotion that should have replaced it.
+  //   On the CANDIDATE list, passed in below, so a promoted action faces the IDENTICAL predicates the
+  //   model's own suggestions face — a resume bullet can name a worktree path, and can leave off at
+  //   "merge #297" that this same document reports as merged — and, just as important, so a doomed
+  //   candidate is gone BEFORE dedup and the cap can let it eliminate a valid one.
+  // Passing the guard IN rather than re-filtering the returned list is what makes the second property
+  // hold: a post-hoc pass cannot undo a selection that has already discarded the survivor.
+  const mergeLines = [...(struct.today ?? []), ...(struct.windowMerges ?? [])];
+  const droppedPrs: string[] = [];
+  let prRemoved = 0;
+  // ONE spelling of the guard pair, applied to both lists — the point of the fix is that the two
+  // channels cannot drift apart, which two separate call sites would eventually allow.
+  const applySuggestionGuards = <T extends { text: string }>(list: T[]): T[] => {
+    const kept = list.filter((s) => !INFRA_DENYLIST.some((d) => s.text.includes(d)));
+    const pr = dropMergedPrSuggestions(kept, mergeLines);
+    droppedPrs.push(...pr.droppedPrs);
+    prRemoved += kept.length - pr.kept.length;
+    return pr.kept;
+  };
+  struct.suggestions = applySuggestionGuards(struct.suggestions);
+  struct.suggestions = promoteResumeActions(struct.suggestions, struct.resume, applySuggestionGuards);
   // Surfaced, not silent (§3.8 discipline; the SHA filter above is the precedent).
-  const prDrop = dropMergedPrSuggestions(struct.suggestions, [...(struct.today ?? []), ...(struct.windowMerges ?? [])]);
-  if (prDrop.droppedPrs.length) {
-    const removed = struct.suggestions.length - prDrop.kept.length;
-    struct.suggestions = prDrop.kept;
+  if (droppedPrs.length) {
     struct.warnings = [...(struct.warnings ?? []),
-      `${removed} suggestion(s) named already-merged PR(s) and were removed: ${[...new Set(prDrop.droppedPrs)].map((n) => `#${n}`).join(", ")}`];
+      `${prRemoved} suggestion(s) named already-merged PR(s) and were removed: ${[...new Set(droppedPrs)].map((n) => `#${n}`).join(", ")}`];
   }
 
   // ⚠ THE POSTCHECK BLOCK USED TO SIT HERE and MOVED to `runCore` (core.ts) on 2026-08-11. It is a
