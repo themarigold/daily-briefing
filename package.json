@@ -1,6 +1,6 @@
 {
   "name": "daily-briefing",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local-first morning briefing CLI for developers who work with AI coding assistants \u2014 reads your git history, tells you where you left off and what to do next. BYO AI, no telemetry.",
   "keywords": [
     "cli",

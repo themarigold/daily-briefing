@@ -24,6 +24,15 @@ jobs:
         run: |
           bunx tsc --noEmit
           bun test
+      - name: Version must match tag
+        run: |
+          set -euo pipefail
+          PKG=$(bun -e 'console.log(JSON.parse(await Bun.file("package.json").text()).version)')
+          TAG="${GITHUB_REF_NAME#v}"
+          if [ "$PKG" != "$TAG" ]; then
+            echo "package.json version ($PKG) != tag ($TAG) — the shipped binary would report the wrong version" >&2
+            exit 1
+          fi
       - name: Build binaries
         run: |
           set -euo pipefail
