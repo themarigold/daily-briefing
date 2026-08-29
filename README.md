@@ -17,7 +17,15 @@ first, then API keys, then local models).
 (e.g. `claude`) is the zero-config default; API-key and local-model providers are configured in the
 same config file.
 
-Grab the binary for your platform from the
+**macOS / Linux with [Homebrew](https://brew.sh):**
+
+```sh
+brew install themarigold/tap/daily-briefing
+daily-briefing init     # writes the config template — edit it, then:
+daily-briefing run
+```
+
+**Or grab the binary directly** for your platform from the
 [latest release](https://github.com/themarigold/daily-briefing/releases/latest)
 (`darwin-arm64` / `darwin-x64` / `linux-arm64` / `linux-x64`, plus an **experimental, untested**
 `windows-x64`), then:
